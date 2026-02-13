@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const { ethers } = require('ethers');
 const config = require('../config/gameConfig');
 const WorldState = require('./WorldState');
 const CombatSystem = require('./CombatSystem');
@@ -38,6 +39,9 @@ class GameEngine {
 
         // Pool tracking (in wei as BigInt)
         this.pool = 0n;
+
+        // Wallet manager — set externally after construction for payout support
+        this.walletManager = null;
     }
 
     // ─────────────────────────────────────
@@ -160,7 +164,7 @@ class GameEngine {
         this.actionQueue.clear();
     }
 
-    endGame(alivePlayers) {
+    async endGame(alivePlayers) {
         clearInterval(this.tickInterval);
         this.tickInterval = null;
         this.status = STATES.GAME_OVER;
@@ -177,6 +181,25 @@ class GameEngine {
             winner = alivePlayers[0];
         }
 
+        let payoutTxHash = null;
+
+        // Send payout if winner exists and pool > 0 and wallet manager is available
+        if (winner && this.pool > 0n && this.walletManager) {
+            try {
+                const winnerPayout = this.walletManager.calculateWinnerPayout(this.pool);
+                logger.info('Engine', `Attempting payout: ${ethers.formatEther(winnerPayout)} MON to ${winner.walletAddress}`);
+                const payoutResult = await this.walletManager.sendPayout(winner.walletAddress, winnerPayout);
+                if (payoutResult.success) {
+                    payoutTxHash = payoutResult.txHash;
+                    logger.info('Engine', `Payout sent: ${ethers.formatEther(winnerPayout)} MON → ${payoutTxHash}`);
+                } else {
+                    logger.error('Engine', `Payout FAILED: ${payoutResult.error}`);
+                }
+            } catch (err) {
+                logger.error('Engine', `Payout exception: ${err.message}`);
+            }
+        }
+
         const result = {
             winner: winner ? {
                 id: winner.id,
@@ -188,7 +211,11 @@ class GameEngine {
             total_ticks: this.tick,
             kill_log: this.killLog,
             pool_wei: this.pool.toString(),
-            payout_tx_hash: null, // Set by blockchain module in Phase 2
+            pool_display: this.pool > 0n ? `${ethers.formatEther(this.pool)} MON` : '0 MON',
+            payout_tx_hash: payoutTxHash,
+            payout_explorer_url: payoutTxHash
+                ? `https://testnet.monadexplorer.com/tx/${payoutTxHash}`
+                : null,
         };
 
         logger.info('Engine', `Game ${this.gameId} — OVER. Winner: ${winner?.displayName || 'none'}`);
@@ -198,6 +225,15 @@ class GameEngine {
         setTimeout(() => this.start(), 30_000);
 
         return result;
+    }
+
+    /**
+     * Add an entry fee payment to the prize pool.
+     * @param {bigint} amountWei - Amount in wei to add
+     */
+    addToPool(amountWei) {
+        this.pool += amountWei;
+        logger.info('Engine', `Pool increased. Total: ${ethers.formatEther(this.pool)} MON`);
     }
 
     // ─────────────────────────────────────
