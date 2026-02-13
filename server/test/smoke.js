@@ -54,25 +54,39 @@ async function test() {
     for (let i = 0; i < 3; i++) {
         const wallet = `0xTEST_WALLET_${i}_${Date.now()}`;
 
-        // Step 1: Request payment → should get 402
-        const step1 = await post(`${BASE}/api/join`, { wallet_address: wallet });
-        assert(step1.status === 402, `Player ${i} got 402 Payment Required`);
-        assert(step1.data.payment_required.session_id, `Player ${i} received session_id`);
-
-        // Step 2: Confirm with fake tx_hash → should get 200
-        const step2 = await post(`${BASE}/api/join`, {
+        // Step 1: Request join — may get 402 (production) or 200 (DEV_SKIP_PAYMENT)
+        const step1 = await post(`${BASE}/api/join`, {
             wallet_address: wallet,
-            tx_hash: `0xfake_tx_${i}`,
-            session_id: step1.data.payment_required.session_id,
             spawn_preference: [10 + i * 15, 10 + i * 15],
         });
-        assert(step2.status === 200, `Player ${i} joined successfully`);
-        assert(step2.data.auth_token, `Player ${i} received JWT`);
-        assert(step2.data.display_name, `Player ${i} got name: ${step2.data.display_name}`);
-        assert(step2.data.position, `Player ${i} spawned at [${step2.data.position}]`);
 
-        tokens.push(step2.data.auth_token);
-        agentIds.push(step2.data.agent_id);
+        let joinResult;
+
+        if (step1.status === 200) {
+            // DEV_SKIP_PAYMENT=true — direct join, no 402 flow
+            assert(true, `Player ${i} joined directly (DEV mode)`);
+            joinResult = step1;
+        } else {
+            // Production flow: 402 → verify → 200
+            assert(step1.status === 402, `Player ${i} got 402 Payment Required`);
+            assert(step1.data.payment_required.session_id, `Player ${i} received session_id`);
+
+            // Step 2: Confirm with fake tx_hash → should get 200
+            joinResult = await post(`${BASE}/api/join`, {
+                wallet_address: wallet,
+                tx_hash: `0xfake_tx_${i}`,
+                session_id: step1.data.payment_required.session_id,
+                spawn_preference: [10 + i * 15, 10 + i * 15],
+            });
+        }
+
+        assert(joinResult.status === 200, `Player ${i} joined successfully`);
+        assert(joinResult.data.auth_token, `Player ${i} received JWT`);
+        assert(joinResult.data.display_name, `Player ${i} got name: ${joinResult.data.display_name}`);
+        assert(joinResult.data.position, `Player ${i} spawned at [${joinResult.data.position}]`);
+
+        tokens.push(joinResult.data.auth_token);
+        agentIds.push(joinResult.data.agent_id);
     }
     console.log();
 
