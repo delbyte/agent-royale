@@ -5,19 +5,20 @@
 ---
 
 ## Phase 1: Game Server Engine & State Management
-**Status:** 🟡 Not Started  
+**Status:** ✅ Complete  
 **Owner:** Backend Engineer  
 **Estimated Effort:** ~6 hours  
 **Spec:** [docs/specs/phase-1-game-server-engine.md](docs/specs/phase-1-game-server-engine.md)
 
-- [ ] Project scaffolding (Express + Socket.io + project structure)
-- [ ] Game engine: tick loop, 50×50 grid, entity management, movement
-- [ ] Combat system + crafting system (6 recipes)
-- [ ] Zone shrinking + AFK wolf mechanic
-- [ ] REST API routes (`/api/join`, `/api/world/state`, `/api/action`)
-- [ ] x402 join flow (stubbed — real blockchain in Phase 2)
-- [ ] Game state machine (LOBBY → ACTIVE → GAME_OVER → reset)
-- [ ] Socket.io broadcasting (tick, kill, zone_shrink, game_start, game_over, chat)
+- [x] Project scaffolding (Express + Socket.io + project structure)
+- [x] Game engine: tick loop, 50×50 grid, entity management, movement
+- [x] Combat system + crafting system (6 recipes)
+- [x] Zone shrinking + AFK wolf mechanic
+- [x] REST API routes (`/api/join`, `/api/world/state`, `/api/action`)
+- [x] x402 join flow (stubbed — real blockchain in Phase 2)
+- [x] Game state machine (LOBBY → ACTIVE → GAME_OVER → reset)
+- [x] Socket.io broadcasting (tick, kill, zone_shrink, game_start, game_over, chat)
+- [x] Smoke test suite passing (8/8 assertions)
 
 ---
 
