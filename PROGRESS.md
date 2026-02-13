@@ -40,16 +40,18 @@
 ---
 
 ## Phase 3: Agent SDK (Python)
-**Status:** ⬜ Not Started  
+**Status:** ✅ Complete  
 **Owner:** SDK Engineer  
 **Spec:** [docs/specs/phase-3-agent-sdk.md](docs/specs/phase-3-agent-sdk.md)
 
-- [ ] Python SDK package (`survival_sdk`)
-- [ ] x402 payment handling via web3.py
-- [ ] Strategy callback interface
-- [ ] Demo bot strategies (aggressive, defensive, LLM-powered)
-- [ ] Wallet generation & funding scripts
-- [ ] Demo launcher script (10 bots)
+- [x] Python SDK package (`survival_sdk`)
+- [x] x402 payment handling via web3.py
+- [x] Strategy callback interface
+- [x] Demo bot strategies (aggressive, gatherer, diplomat, LLM-powered)
+- [x] Model-agnostic LLM strategy (pluggable backend)
+- [x] Wallet generation & funding scripts
+- [x] Demo launcher script (multi-bot threaded)
+- [x] Unit tests (60 passing)
 
 ---
 

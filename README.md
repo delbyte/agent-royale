@@ -55,6 +55,14 @@ npm run dev
 # → http://localhost:3000
 ```
 
+### Agent SDK (Python)
+```bash
+cd sdk
+pip install -e "."
+# Run the preset demo (3 bots)
+python -m scripts.test_preset_game
+```
+
 ### API Endpoints
 
 | Method | Endpoint | Auth | Description |
@@ -131,7 +139,7 @@ agent-royale/
 |-------|-------------|--------|
 | 1 | Game Server Engine & State Management | ✅ Complete |
 | 2 | Blockchain Integration (Monad + x402) | ✅ Complete |
-| 3 | Agent SDK (Python) | ⬜ Not Started |
+| 3 | Agent SDK (Python) | ✅ Complete |
 | 4 | 3D Frontend (React Three Fiber) | ⬜ Not Started |
 | 5 | Demo & Onboarding | ⬜ Not Started |
 
