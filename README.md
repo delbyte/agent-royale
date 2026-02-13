@@ -38,6 +38,16 @@ npm run dev
 node test/smoke.js
 ```
 
+### Blockchain Integration Tests
+```bash
+cd server
+# Unit tests (no server needed)
+node test/phase2-smoke.js
+
+# Live on-chain test (requires HOT_WALLET_PRIVATE_KEY in .env with ≥0.05 MON)
+node test/phase2-onchain.js
+```
+
 ### Frontend (Spectator Client)
 ```bash
 npm install
@@ -53,6 +63,7 @@ npm run dev
 | `POST` | `/api/join` | — | Join game (x402 flow: 402 → pay → 200 + JWT) |
 | `GET` | `/api/world/state` | JWT | Fog-of-war filtered world state |
 | `POST` | `/api/action` | JWT | Submit action (`MOVE`, `ATTACK`, `HARVEST`, `CRAFT`, `USE`, `TALK`, `IDLE`) |
+| `GET` | `/api/wallet/info` | — | Hot wallet address, entry fee, balance, chain config |
 
 ### Socket.io Events (namespace: `/game`)
 
@@ -70,26 +81,31 @@ npm run dev
 
 ```
 agent-royale/
-├── server/                    # Game Server (Phase 1 ✅)
+├── server/                    # Game Server (Phase 1 ✅ + Phase 2 ✅)
 │   ├── config/
 │   │   ├── gameConfig.js      # All tunable game constants
 │   │   └── names.js           # 20 agent display names
 │   ├── engine/
-│   │   ├── GameEngine.js      # State machine, tick loop, action processing
+│   │   ├── GameEngine.js      # State machine, tick loop, async payout
 │   │   ├── WorldState.js      # 50×50 grid, entity CRUD, BFS spawn
 │   │   ├── CombatSystem.js    # Damage calc with weapon priority
 │   │   ├── CraftingSystem.js  # 6 recipes, ingredient validation
 │   │   ├── ZoneManager.js     # Zone shrinking schedule
 │   │   └── LootTable.js       # Weighted random loot drops
+│   ├── blockchain/            # Monad Testnet integration (Phase 2)
+│   │   ├── walletManager.js   # Hot wallet, tx verification, payouts
+│   │   └── x402Middleware.js  # x402 payment sessions (5-min TTL)
 │   ├── api/
-│   │   ├── joinRoute.js       # POST /api/join (x402 stubbed)
+│   │   ├── joinRoute.js       # POST /api/join (real x402 + DEV bypass)
 │   │   ├── stateRoute.js      # GET /api/world/state (JWT + fog of war)
 │   │   └── actionRoute.js     # POST /api/action (JWT + validation)
 │   ├── utils/
 │   │   └── logger.js          # Timestamped console logger
 │   ├── test/
-│   │   └── smoke.js           # 8-assertion smoke test
-│   ├── index.js               # Express + Socket.io entry point
+│   │   ├── smoke.js           # Phase 1 smoke test (8 assertions)
+│   │   ├── phase2-smoke.js    # Phase 2 unit + integration (33 assertions)
+│   │   └── phase2-onchain.js  # Live on-chain test (14 assertions)
+│   ├── index.js               # Express + Socket.io + blockchain wiring
 │   └── .env                   # Server environment vars
 │
 ├── public/assets/             # 3D Assets (Kenney, GLB format)
@@ -114,7 +130,7 @@ agent-royale/
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Game Server Engine & State Management | ✅ Complete |
-| 2 | Blockchain Integration (Monad + x402) | ⬜ Not Started |
+| 2 | Blockchain Integration (Monad + x402) | ✅ Complete |
 | 3 | Agent SDK (Python) | ⬜ Not Started |
 | 4 | 3D Frontend (React Three Fiber) | ⬜ Not Started |
 | 5 | Demo & Onboarding | ⬜ Not Started |

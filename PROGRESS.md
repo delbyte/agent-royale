@@ -23,15 +23,19 @@
 ---
 
 ## Phase 2: Blockchain Integration (Monad Testnet + x402)
-**Status:** ⬜ Not Started  
+**Status:** ✅ Complete  
 **Owner:** Blockchain Engineer  
 **Spec:** [docs/specs/phase-2-blockchain-integration.md](docs/specs/phase-2-blockchain-integration.md)
 
-- [ ] Wallet manager (ethers.js v6)
-- [ ] x402 payment flow (HTTP 402 → on-chain MON payment → JWT)
-- [ ] Transaction verification
-- [ ] Automated winner payout (90% pool)
-- [ ] Session management with TTL
+- [x] Wallet manager (ethers.js v6) — `server/blockchain/walletManager.js`
+- [x] x402 payment flow (HTTP 402 → on-chain MON payment → JWT) — `server/blockchain/x402Middleware.js`
+- [x] Transaction verification (recipient, amount, session_id, double-spend protection)
+- [x] Automated winner payout (90% pool) — integrated in `GameEngine.endGame()`
+- [x] Session management with 5-min TTL + auto-cleanup
+- [x] DEV_SKIP_PAYMENT bypass for local development
+- [x] `/api/wallet/info` endpoint for diagnostics
+- [x] Phase 2 test suite passing (33/33 assertions)
+- [x] Phase 1 regression tests passing
 
 ---
 
