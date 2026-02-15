@@ -171,7 +171,10 @@ class SurvivalAgent:
         if receipt["status"] != 1:
             raise RuntimeError(f"Transaction failed: {tx_hash.hex()}")
 
-        return tx_hash.hex()
+        tx_hash_hex = tx_hash.hex()
+        if not tx_hash_hex.startswith("0x"):
+            tx_hash_hex = f"0x{tx_hash_hex}"
+        return tx_hash_hex
 
     def _handle_join_success(self, data: dict):
         """Store credentials from a successful join response."""

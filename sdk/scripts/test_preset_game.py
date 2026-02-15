@@ -30,6 +30,7 @@ import secrets
 import threading
 import time
 import sys
+from pathlib import Path
 import requests
 from web3 import Web3
 from eth_account import Account
@@ -40,7 +41,7 @@ from survival_sdk.strategies.gatherer import gatherer_strategy
 from survival_sdk.strategies.diplomat import diplomat_strategy
 
 # ── Configuration ──
-SERVER = "http://localhost:3001"
+SERVER = os.getenv("SERVER_URL", "http://localhost:3001")
 NUM_BOTS = 10  # Total bots to launch
 
 STRATEGIES = [
@@ -55,6 +56,47 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("test_preset")
+
+
+def read_env_value_from_file(env_path: Path, key: str) -> str:
+    """Read a single KEY=value from a dotenv-style file."""
+    if not env_path.exists():
+        return ""
+
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() != key:
+                continue
+            value = v.strip().strip('"').strip("'")
+            return value
+    except Exception:
+        return ""
+
+    return ""
+
+
+def resolve_source_private_key() -> str:
+    """Resolve funding key from shell env first, then local env files."""
+    source_key = os.getenv("HOT_WALLET_PRIVATE_KEY", "").strip()
+    if source_key:
+        return source_key
+
+    script_dir = Path(__file__).resolve().parent
+    candidate_paths = [
+        script_dir.parent / ".env",           # sdk/.env
+        script_dir.parent.parent / "server" / ".env",  # server/.env
+    ]
+
+    for path in candidate_paths:
+        value = read_env_value_from_file(path, "HOT_WALLET_PRIVATE_KEY")
+        if value:
+            return value
+
+    return ""
 
 
 def generate_dummy_key():
@@ -87,10 +129,10 @@ def generate_bot_wallets(count: int) -> list[dict]:
 
 def fund_wallets_for_demo(wallets: list[dict], wallet_info: dict) -> bool:
     """Fund each generated wallet so it can pay entry fee + gas."""
-    source_key = os.getenv("HOT_WALLET_PRIVATE_KEY", "").strip()
+    source_key = resolve_source_private_key()
     if not source_key:
-        print("  ERROR: HOT_WALLET_PRIVATE_KEY is not set in this shell")
-        print("  Set it, then rerun this script.")
+        print("  ERROR: HOT_WALLET_PRIVATE_KEY not found")
+        print("  Set it in shell, or in sdk/.env, or in server/.env")
         return False
 
     rpc_url = wallet_info.get("rpc_url") or "https://testnet-rpc.monad.xyz/"

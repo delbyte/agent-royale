@@ -55,7 +55,9 @@ class WalletManager {
      * @returns {Promise<{valid: boolean, error?: string, message?: string, sender?: string, value?: string}>}
      */
     async verifyPayment(txHash, expectedSessionId) {
-        if (this.usedTxHashes.has(txHash.toLowerCase())) {
+        const normalizedTxHash = txHash?.startsWith('0x') ? txHash : `0x${txHash || ''}`;
+
+        if (this.usedTxHashes.has(normalizedTxHash.toLowerCase())) {
             return { valid: false, error: 'TX_ALREADY_USED' };
         }
 
@@ -65,9 +67,9 @@ class WalletManager {
             let receipt = null;
 
             for (let attempt = 0; attempt < 10; attempt++) {
-                tx = await this.provider.getTransaction(txHash);
+                tx = await this.provider.getTransaction(normalizedTxHash);
                 if (tx) {
-                    receipt = await this.provider.getTransactionReceipt(txHash);
+                    receipt = await this.provider.getTransactionReceipt(normalizedTxHash);
                     if (receipt && receipt.status === 1) break;
                 }
                 await new Promise(r => setTimeout(r, 1000));
@@ -104,7 +106,7 @@ class WalletManager {
             }
 
             // Mark tx as used — prevents replay
-            this.usedTxHashes.add(txHash.toLowerCase());
+            this.usedTxHashes.add(normalizedTxHash.toLowerCase());
 
             return {
                 valid: true,
