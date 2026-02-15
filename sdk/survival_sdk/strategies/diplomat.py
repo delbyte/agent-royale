@@ -96,19 +96,19 @@ def diplomat_strategy(agent: "SurvivalAgent", state: dict):
                     agent.move(agent.direction_toward(target["position"]))
                 return
 
-    # ── 4. Diplomacy: chat with nearby players ──
-    if nearby_players and tick % 5 == 0:
-        logger.info(f"[{me.get('display_name', 'Bot')}] Proposing alliance")
-        agent.talk(random.choice(ALLIANCE_MESSAGES))
-        return
-
-    # ── 5. Self-defense: fight back if adjacent enemy ──
+    # ── 4. Self-defense: fight back if adjacent enemy ──
     for player in nearby_players:
         dist = agent._manhattan_dist(me["position"], player["position"])
         if dist <= 1:
             logger.info(f"[{me.get('display_name', 'Bot')}] Self-defense: Attacking {player.get('display_name', 'enemy')}")
             agent.attack(player["id"])
             return
+
+    # ── 5. Diplomacy: chat with nearby players ──
+    if nearby_players and tick % 5 == 0:
+        logger.info(f"[{me.get('display_name', 'Bot')}] Proposing alliance")
+        agent.talk(random.choice(ALLIANCE_MESSAGES))
+        return
 
     # ── 6. Farm resources quietly ──
     if not agent.has_weapon() and agent.can_craft("wooden-club"):

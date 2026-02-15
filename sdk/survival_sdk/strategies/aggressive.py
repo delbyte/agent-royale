@@ -57,7 +57,23 @@ def aggressive_strategy(agent: "SurvivalAgent", state: dict):
                 agent.use(i)
                 return
 
-    # ── 3. Hunt: attack nearest enemy player ──
+    # ── 3. Arm up first if enemies are visible but we're unarmed ──
+    nearby_players = [
+        e for e in entities
+        if e.get("type") == "PLAYER"
+    ]
+    if nearby_players and not agent.has_weapon():
+        workbench = agent.find_nearest(entities, "WORKBENCH")
+        if workbench and agent.can_craft("wooden-club"):
+            dist = agent._manhattan_dist(me["position"], workbench["position"])
+            if dist <= 2:
+                logger.info(f"[{me.get('display_name', 'Bot')}] Crafting wooden-club")
+                agent.craft("wooden-club")
+            else:
+                agent.move(agent.direction_toward(workbench["position"]))
+            return
+
+    # ── 4. Hunt: attack nearest enemy player ──
     nearby_players = [
         e for e in entities
         if e.get("type") == "PLAYER"
@@ -75,7 +91,7 @@ def aggressive_strategy(agent: "SurvivalAgent", state: dict):
                 agent.move(agent.direction_toward(target["position"]))
             return
 
-    # ── 4. Arm up: craft weapon if near workbench ──
+    # ── 5. Arm up: craft weapon if near workbench ──
     if not agent.has_weapon():
         # Try to craft in order of power: stone-hammer > stone-axe > wooden-club
         for recipe in ["stone-hammer", "stone-axe", "wooden-club"]:
@@ -95,7 +111,7 @@ def aggressive_strategy(agent: "SurvivalAgent", state: dict):
                         )
                         return
 
-    # ── 5. Gather resources for crafting ──
+    # ── 6. Gather resources for crafting ──
     if not agent.has_weapon() and not agent.can_craft("wooden-club"):
         resource = agent.find_nearest(entities, "RESOURCE")
         if resource:
@@ -107,7 +123,7 @@ def aggressive_strategy(agent: "SurvivalAgent", state: dict):
                 agent.move(agent.direction_toward(resource["position"]))
             return
 
-    # ── 6. Loot: grab any nearby loot drops ──
+    # ── 7. Loot: grab any nearby loot drops ──
     loot = agent.find_nearest(entities, "LOOT")
     if loot:
         dist = agent._manhattan_dist(me["position"], loot["position"])
@@ -118,7 +134,7 @@ def aggressive_strategy(agent: "SurvivalAgent", state: dict):
             agent.move(agent.direction_toward(loot["position"]))
         return
 
-    # ── 7. Default: move toward zone center ──
+    # ── 8. Default: move toward zone center ──
     zone_center = zone.get("center", [25, 25])
     if agent.distance_to(zone_center) > 3:
         agent.move(agent.direction_toward(zone_center))

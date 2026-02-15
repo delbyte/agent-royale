@@ -62,7 +62,13 @@ def gatherer_strategy(agent: "SurvivalAgent", state: dict):
     for player in nearby_players:
         dist = agent._manhattan_dist(me["position"], player["position"])
         if dist <= 1:
-            # Adjacent enemy — fight or die
+            # Adjacent enemy — avoid long bare-hands stalemates
+            if not agent.has_weapon():
+                # Try to disengage and craft instead of trading 1-dmg punches forever
+                logger.info(f"[{me.get('display_name', 'Bot')}] Disengaging (unarmed)")
+                _wander(agent, state)
+                return
+
             logger.info(f"[{me.get('display_name', 'Bot')}] Self-defense: Attacking {player.get('display_name', 'enemy')}")
             agent.attack(player["id"])
             return

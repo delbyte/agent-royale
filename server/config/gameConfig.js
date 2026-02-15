@@ -12,16 +12,17 @@ module.exports = {
   MIN_PLAYERS: parseInt(process.env.MIN_PLAYERS || '3'),
   MAX_PLAYERS: parseInt(process.env.MAX_PLAYERS || '20'),
   LOBBY_DURATION_SECONDS: parseInt(process.env.LOBBY_DURATION_SECONDS || '120'),
+  LOBBY_GRACE_AFTER_MIN_SECONDS: parseInt(process.env.LOBBY_GRACE_AFTER_MIN_SECONDS || '8'),
 
   // Player
   PLAYER_MAX_HP: 100,
   PLAYER_MAX_STAMINA: 100,
   PLAYER_INVENTORY_SLOTS: 5,
   PLAYER_VISION_RADIUS: 15, // Chebyshev distance
-  STAMINA_REGEN_PER_TICK: 5, // When idle
-  STAMINA_COST_MOVE: 3,
-  STAMINA_COST_ATTACK: 10,
-  STAMINA_COST_HARVEST: 5,
+  STAMINA_REGEN_PER_TICK: 0, // Stamina mechanic disabled
+  STAMINA_COST_MOVE: 0,
+  STAMINA_COST_ATTACK: 0,
+  STAMINA_COST_HARVEST: 0,
   BARE_HANDS_DAMAGE: 1,
   AFK_KILL_TICKS: 30, // 30 ticks on same tile = wolf kill
   MAX_RESOURCE_STACK: 20, // Max quantity per inventory slot

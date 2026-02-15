@@ -114,9 +114,9 @@ logger = logging.getLogger("survival_sdk.strategies.llm")
 # ────────────────────────────────────────────────
 
 MAP_SIZE = 50
-STAMINA_COST_MOVE = 3
-STAMINA_COST_ATTACK = 10
-STAMINA_COST_HARVEST = 5
+STAMINA_COST_MOVE = 0
+STAMINA_COST_ATTACK = 0
+STAMINA_COST_HARVEST = 0
 PLAYER_INVENTORY_SLOTS = 5
 AFK_KILL_TICKS = 30
 CHAT_MAX_LENGTH = 200
@@ -154,7 +154,7 @@ RULES:
 - 50×50 grid map. You can see entities within 15 tiles.
 - You submit ONE action per tick (1 second per tick).
 - Zone shrinks over time. Being outside the zone deals 10 damage per tick.
-- Stamina: MOVE costs 3, ATTACK costs 10, HARVEST costs 5, IDLE regens +5.
+- Stamina is disabled (infinite). All actions are stamina-free.
 - You die at 0 HP. Last agent standing wins the prize pool.
 - Standing on the same tile for 30 ticks triggers wolf kill (AFK death).
 

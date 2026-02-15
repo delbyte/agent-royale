@@ -31,7 +31,7 @@ from survival_sdk.strategies.diplomat import diplomat_strategy
 
 # ── Configuration ──
 SERVER = "http://localhost:3001"
-NUM_BOTS = 3  # 1 per strategy (matches default server MIN_PLAYERS=3)
+NUM_BOTS = 10  # Total bots to launch
 
 STRATEGIES = [
     ("Aggressive", aggressive_strategy),
@@ -75,13 +75,14 @@ def main():
     print("═" * 50)
     print("  Protocol: SURVIVAL — Preset Strategies Test")
     print(f"  Server: {SERVER}")
-    print(f"  Bots: {NUM_BOTS} (2x Aggressive, 2x Gatherer, 2x Diplomat)")
+    print(f"  Bots: {NUM_BOTS} (cycled Aggressive/Gatherer/Diplomat)")
     print("  AI: None (all rule-based)")
     print("═" * 50)
     print()
 
     threads = []
-    for i, (name, fn) in enumerate(STRATEGIES):
+    for i in range(NUM_BOTS):
+        name, fn = STRATEGIES[i % len(STRATEGIES)]
         t = threading.Thread(
             target=run_bot, args=(i, name, fn), daemon=True
         )

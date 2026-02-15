@@ -23,12 +23,14 @@ class GameEngine {
         this.tick = 0;
         this.tickInterval = null;
         this.lobbyTimeout = null;
+        this.minStartTimeout = null;
 
         // Subsystems
         this.world = new WorldState(config.MAP_SIZE);
         this.combat = new CombatSystem();
         this.crafting = new CraftingSystem();
         this.zone = new ZoneManager();
+        this.lastZoneWarningTick = null;
 
         // Player tracking
         this.players = new Map();       // agentId -> PlayerState
@@ -52,12 +54,15 @@ class GameEngine {
         this.status = STATES.LOBBY_OPEN;
         this.gameId = uuidv4();
         this.tick = 0;
+        clearTimeout(this.minStartTimeout);
+        this.minStartTimeout = null;
         this.players.clear();
         this.actionQueue.clear();
         this.usedNames.clear();
         this.killLog = [];
         this.chatLog = [];
         this.pool = 0n;
+        this.lastZoneWarningTick = null;
         this.world.reset();
 
         logger.info('Engine', `Game ${this.gameId} — Lobby open`);
@@ -73,6 +78,7 @@ class GameEngine {
      */
     scheduleLobbyCheck() {
         clearTimeout(this.lobbyTimeout);
+        clearTimeout(this.minStartTimeout);
         this.lobbyTimeout = setTimeout(() => {
             if (this.status !== STATES.LOBBY_OPEN) return; // Guard against race
             if (this.players.size >= config.MIN_PLAYERS) {
@@ -87,6 +93,7 @@ class GameEngine {
     startGame() {
         if (this.status !== STATES.LOBBY_OPEN) return;
         clearTimeout(this.lobbyTimeout);
+        clearTimeout(this.minStartTimeout);
 
         this.status = STATES.GAME_ACTIVE;
         this.tick = 0;
@@ -132,6 +139,9 @@ class GameEngine {
     gameTick() {
         this.tick++;
 
+        // 0. Zone warning announcements (e.g., 10s before shrink)
+        this.emitZoneCountdownWarning();
+
         // 1. Process all queued actions
         this.processActions();
 
@@ -144,24 +154,36 @@ class GameEngine {
         // 3. Apply zone damage to players outside safe zone
         this.applyZoneDamage();
 
-        // 4. Regenerate stamina for idle players
-        this.regenerateStamina();
-
-        // 5. Check AFK (wolf mechanic)
+        // 4. Check AFK (wolf mechanic)
         this.checkAFK();
 
-        // 6. Check for winner
+        // 5. Check for winner
         const alivePlayers = this.getAlivePlayers();
         if (alivePlayers.length <= 1 || this.tick >= config.MAX_GAME_TICKS) {
             this.endGame(alivePlayers);
             return;
         }
 
-        // 7. Broadcast tick state to all spectators
+        // 6. Broadcast tick state to all spectators
         this.broadcastTick();
 
-        // 8. Clear action queue for next tick
+        // 7. Clear action queue for next tick
         this.actionQueue.clear();
+    }
+
+    emitZoneCountdownWarning() {
+        const zoneState = this.zone.getState();
+        if (!zoneState || zoneState.next_shrink_tick == null || zoneState.next_radius == null) return;
+
+        const secondsUntil = zoneState.next_shrink_tick - this.tick;
+        if (secondsUntil === 10 && this.lastZoneWarningTick !== this.tick) {
+            this.lastZoneWarningTick = this.tick;
+            this.io.of('/game').emit('zone_warning', {
+                tick: this.tick,
+                seconds_remaining: 10,
+                next_radius: zoneState.next_radius,
+            });
+        }
     }
 
     async endGame(alivePlayers) {
@@ -272,6 +294,9 @@ class GameEngine {
             idleTicks: 0,
             lastPosition: [...position],
             lastChatTick: -999,
+            lastAction: null,
+            lastActionTick: null,
+            lastActionTarget: null,
         };
 
         this.players.set(agentId, player);
@@ -281,13 +306,25 @@ class GameEngine {
 
         logger.info('Engine', `${displayName} (${agentId}) joined at [${position}]`);
 
-        // Auto-start when enough players have joined
-        if (this.players.size >= config.MIN_PLAYERS) {
+        // Auto-start immediately when lobby is full.
+        if (this.players.size >= config.MAX_PLAYERS) {
             try {
                 this.startGame();
             } catch (err) {
                 logger.error('Engine', `startGame failed: ${err.stack || err.message}`);
             }
+        } else if (
+            this.players.size >= config.MIN_PLAYERS
+            && !this.minStartTimeout
+            && this.status === STATES.LOBBY_OPEN
+        ) {
+            // Grace period: allow additional joins after min players are reached.
+            this.minStartTimeout = setTimeout(() => {
+                this.minStartTimeout = null;
+                if (this.status === STATES.LOBBY_OPEN && this.players.size >= config.MIN_PLAYERS) {
+                    this.startGame();
+                }
+            }, config.LOBBY_GRACE_AFTER_MIN_SECONDS * 1000);
         }
 
         return {
@@ -336,6 +373,11 @@ class GameEngine {
             if (!player || !player.alive) continue;
 
             try {
+                // Track attempted action for frontend animation cues.
+                player.lastAction = action.action;
+                player.lastActionTick = this.tick;
+                player.lastActionTarget = action.target_id || null;
+
                 switch (action.action) {
                     case 'MOVE':
                         this.processMove(player, action);
@@ -356,7 +398,7 @@ class GameEngine {
                         this.processTalk(player, action);
                         break;
                     case 'IDLE':
-                        break; // Intentional no-op — stamina regens separately
+                        break; // Intentional no-op
                     default:
                         logger.warn('Engine', `Unknown action from ${agentId}: ${action.action}`);
                 }
@@ -367,50 +409,61 @@ class GameEngine {
     }
 
     processMove(player, action) {
-        if (player.stamina < config.STAMINA_COST_MOVE) return;
-
         const DIRECTIONS = {
             'N': [0, -1], 'S': [0, 1], 'E': [1, 0], 'W': [-1, 0],
             'NE': [1, -1], 'NW': [-1, -1], 'SE': [1, 1], 'SW': [-1, 1],
         };
 
         const delta = DIRECTIONS[action.direction];
-        if (!delta) return;
+        if (!delta) return false;
 
         const newX = player.position[0] + delta[0];
         const newY = player.position[1] + delta[1];
 
         // Bounds + collision check (barricades and resources block movement)
-        if (this.world.isBlocked(newX, newY)) return;
+        if (this.world.isBlocked(newX, newY)) return false;
 
         this.world.moveEntity(player.id, player.position, [newX, newY]);
         player.position = [newX, newY];
-        player.stamina -= config.STAMINA_COST_MOVE;
+        player.stamina = config.PLAYER_MAX_STAMINA;
+        return true;
     }
 
     processAttack(player, action) {
-        if (player.stamina < config.STAMINA_COST_ATTACK) return;
-        if (!action.target_id) return;
+        if (!action.target_id) return false;
 
         // Target can be another player or a world entity (barricade)
         const targetPlayer = this.players.get(action.target_id);
         const targetEntity = this.world.getEntity(action.target_id);
 
-        if (!targetPlayer && !targetEntity) return;
+        if (!targetPlayer && !targetEntity) return false;
 
         // Determine target position for adjacency check
         const targetPos = targetPlayer ? targetPlayer.position : targetEntity.position;
         const dx = Math.abs(player.position[0] - targetPos[0]);
         const dy = Math.abs(player.position[1] - targetPos[1]);
-        if (dx > 1 || dy > 1) return; // Must be within 1 tile (melee)
+        if (dx > 1 || dy > 1) return false; // Must be within 1 tile (melee)
 
-        player.stamina -= config.STAMINA_COST_ATTACK;
+        player.stamina = config.PLAYER_MAX_STAMINA;
         const damage = this.combat.calculateDamage(player);
+        const weaponUsed = this.combat.getBestWeapon(player);
 
         if (targetPlayer) {
             // Attacking another player
-            if (!targetPlayer.alive) return;
+            if (!targetPlayer.alive) return false;
             targetPlayer.hp = Math.max(0, targetPlayer.hp - damage);
+
+            this.io.of('/game').emit('damage', {
+                tick: this.tick,
+                attacker_id: player.id,
+                attacker_name: player.displayName,
+                target_id: targetPlayer.id,
+                target_name: targetPlayer.displayName,
+                damage,
+                target_hp: targetPlayer.hp,
+                weapon: weaponUsed,
+            });
+
             if (targetPlayer.hp <= 0) {
                 this.eliminatePlayer(targetPlayer, player, 'combat');
             }
@@ -420,9 +473,12 @@ class GameEngine {
             if (targetEntity.hp <= 0) {
                 this.world.removeEntity(action.target_id);
             }
+        } else {
+            return false;
         }
         // Attacking trees/rocks/workbenches via ATTACK does nothing intentionally
         // — use HARVEST for resources
+        return true;
     }
 
     /**
@@ -434,18 +490,17 @@ class GameEngine {
      * uninteractable. This is fixed here.
      */
     processHarvest(player, action) {
-        if (player.stamina < config.STAMINA_COST_HARVEST) return;
-        if (!action.target_id) return;
+        if (!action.target_id) return false;
 
         const entity = this.world.getEntity(action.target_id);
-        if (!entity) return;
+        if (!entity) return false;
 
         // Adjacency check (Chebyshev distance ≤ 1)
         const dx = Math.abs(player.position[0] - entity.position[0]);
         const dy = Math.abs(player.position[1] - entity.position[1]);
-        if (dx > 1 || dy > 1) return;
+        if (dx > 1 || dy > 1) return false;
 
-        player.stamina -= config.STAMINA_COST_HARVEST;
+        player.stamina = config.PLAYER_MAX_STAMINA;
 
         if (entity.type === 'RESOURCE') {
             // Progressive harvest (trees & rocks)
@@ -475,23 +530,26 @@ class GameEngine {
             }
             this.addToInventory(player, loot.item, loot.quantity);
             this.world.removeEntity(action.target_id);
+        } else {
+            return false;
         }
         // WORKBENCH: can't be harvested (no-op if targeted)
+        return true;
     }
 
     processCraft(player, action) {
-        if (!action.recipe) return;
+        if (!action.recipe) return false;
         const recipe = config.RECIPES[action.recipe];
-        if (!recipe) return;
+        if (!recipe) return false;
 
         // Check near workbench (Chebyshev distance ≤ 2)
         const nearWorkbench = this.world.findNearby(player.position, 2)
             .some(e => e.type === 'WORKBENCH');
-        if (!nearWorkbench) return;
+        if (!nearWorkbench) return false;
 
         // Check ingredients
         for (const [item, qty] of Object.entries(recipe.ingredients)) {
-            if (this.countInInventory(player, item) < qty) return;
+            if (this.countInInventory(player, item) < qty) return false;
         }
 
         // Consume ingredients
@@ -515,26 +573,29 @@ class GameEngine {
         } else {
             this.addToInventory(player, recipe.result.item, 1);
         }
+        return true;
     }
 
     processUse(player, action) {
         const slot = action.item_slot;
-        if (typeof slot !== 'number' || slot < 0 || slot >= config.PLAYER_INVENTORY_SLOTS) return;
+        if (typeof slot !== 'number' || slot < 0 || slot >= config.PLAYER_INVENTORY_SLOTS) return false;
 
         const item = player.inventory[slot];
-        if (!item) return;
+        if (!item) return false;
 
         if (item.item === 'health-potion') {
             player.hp = Math.min(config.PLAYER_MAX_HP, player.hp + 30);
             player.inventory[slot] = null;
+            return true;
         }
         // Future: other consumables can be added here
+        return false;
     }
 
     processTalk(player, action) {
-        if (!action.message || typeof action.message !== 'string') return;
-        if (action.message.length > config.CHAT_MAX_LENGTH) return;
-        if (this.tick - player.lastChatTick < config.CHAT_COOLDOWN_TICKS) return;
+        if (!action.message || typeof action.message !== 'string') return false;
+        if (action.message.length > config.CHAT_MAX_LENGTH) return false;
+        if (this.tick - player.lastChatTick < config.CHAT_COOLDOWN_TICKS) return false;
 
         player.lastChatTick = this.tick;
 
@@ -548,6 +609,7 @@ class GameEngine {
 
         this.chatLog.push(chatEvent);
         this.io.of('/game').emit('chat', chatEvent);
+        return true;
     }
 
     // ─────────────────────────────────────
@@ -576,9 +638,19 @@ class GameEngine {
         for (const [, player] of this.players) {
             if (!player.alive) continue;
 
+            const queuedAction = this.actionQueue.get(player.id);
+            const activeAction = queuedAction
+                && ['MOVE', 'ATTACK', 'HARVEST', 'CRAFT', 'USE', 'TALK'].includes(queuedAction.action);
+
             if (player.position[0] === player.lastPosition[0] &&
                 player.position[1] === player.lastPosition[1]) {
-                player.idleTicks++;
+                if (activeAction) {
+                    // Attacking/harvesting/crafting counts as active play;
+                    // avoid false AFK eliminations during prolonged fights.
+                    player.idleTicks = 0;
+                } else {
+                    player.idleTicks++;
+                }
             } else {
                 player.idleTicks = 0;
                 player.lastPosition = [...player.position];
@@ -586,25 +658,6 @@ class GameEngine {
 
             if (player.idleTicks >= config.AFK_KILL_TICKS) {
                 this.eliminatePlayer(player, null, 'wolves');
-            }
-        }
-    }
-
-    // ─────────────────────────────────────
-    // STAMINA REGEN
-    // ─────────────────────────────────────
-
-    regenerateStamina() {
-        for (const [agentId, player] of this.players) {
-            if (!player.alive) continue;
-
-            // Regen if player didn't submit an action this tick, or submitted IDLE
-            const action = this.actionQueue.get(agentId);
-            if (!action || action.action === 'IDLE') {
-                player.stamina = Math.min(
-                    config.PLAYER_MAX_STAMINA,
-                    player.stamina + config.STAMINA_REGEN_PER_TICK
-                );
             }
         }
     }
@@ -723,6 +776,9 @@ class GameEngine {
                 alive: p.alive,
                 kills: p.kills,
                 holding: this.getHeldWeapon(p),
+                last_action: p.lastAction,
+                last_action_tick: p.lastActionTick,
+                last_action_target: p.lastActionTarget,
             })),
             entities: this.world.getAllEntities(),
             zone: this.zone.getState(),
@@ -784,6 +840,8 @@ class GameEngine {
                 inventory: player.inventory,
                 kills: player.kills,
                 alive: player.alive,
+                last_action: player.lastAction,
+                last_action_tick: player.lastActionTick,
             },
             zone: this.zone.getState(),
             nearby_entities: [...nearbyEntities, ...nearbyPlayers],
