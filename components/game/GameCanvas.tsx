@@ -4,6 +4,7 @@ import { Canvas } from '@react-three/fiber';
 import { Suspense } from 'react';
 import Scene from './Scene';
 import Ground from './Ground';
+import WorldDecor from './WorldDecor';
 import Players from './Players';
 import Resources from './Resources';
 import Structures from './Structures';
@@ -28,6 +29,7 @@ export default function GameCanvas({ state }: Props) {
             <Suspense fallback={null}>
                 <Scene />
                 <Ground />
+                <WorldDecor />
                 <Players
                     players={state.players}
                     followId={state.followPlayer}

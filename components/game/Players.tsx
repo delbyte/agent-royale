@@ -14,10 +14,43 @@ const CHARACTERS = [
     'character-female-a', 'character-female-b', 'character-female-c', 'character-female-d', 'character-female-e', 'character-female-f'
 ];
 
+const HELD_MODELS: Record<string, {
+    path: string;
+    scale: number;
+    position: [number, number, number];
+    rotation: [number, number, number];
+}> = {
+    'wooden-club': {
+        path: '/assets/models/environment/tool-hammer.glb',
+        scale: 0.14,
+        position: [0.2, 0.95, 0.14],
+        rotation: [0.15, 0.3, -1.2],
+    },
+    'stone-axe': {
+        path: '/assets/models/environment/tool-axe-upgraded.glb',
+        scale: 0.16,
+        position: [0.22, 1.0, 0.14],
+        rotation: [0.25, 0.2, -1.05],
+    },
+    'stone-pickaxe': {
+        path: '/assets/models/environment/tool-pickaxe-upgraded.glb',
+        scale: 0.15,
+        position: [0.22, 1.0, 0.14],
+        rotation: [0.3, 0.15, -0.95],
+    },
+    'stone-hammer': {
+        path: '/assets/models/environment/tool-hammer-upgraded.glb',
+        scale: 0.16,
+        position: [0.22, 1.0, 0.14],
+        rotation: [0.2, 0.25, -1.1],
+    },
+};
+
 // Preload all models
 CHARACTERS.forEach(char => {
     useGLTF.preload(`/assets/models/characters/${char}.glb`);
 });
+Object.values(HELD_MODELS).forEach(spec => useGLTF.preload(spec.path));
 
 interface Props {
     players: InterpolatedPlayer[];
@@ -198,6 +231,8 @@ function PlayerMesh({ player, isFollowed }: { player: InterpolatedPlayer; isFoll
                 <primitive object={clone} />
             </group>
 
+            {player.holding && <HeldItem item={player.holding} actionType={player.last_action || null} actionTick={player.last_action_tick || null} />}
+
             <mesh ref={slashRef} position={[0, 1.05, 0.45]} visible={false}>
                 <torusGeometry args={[0.28, 0.03, 8, 24, Math.PI * 1.1]} />
                 <meshBasicMaterial color="#ff8844" transparent opacity={0} />
@@ -279,6 +314,64 @@ function PlayerMesh({ player, isFollowed }: { player: InterpolatedPlayer; isFoll
                     )}
                 </div>
             </Html>
+        </group>
+    );
+}
+
+function HeldItem({
+    item,
+    actionType,
+    actionTick,
+}: {
+    item: string;
+    actionType: InterpolatedPlayer['last_action'];
+    actionTick: number | null;
+}) {
+    const knownSpec = HELD_MODELS[item];
+    const spec = knownSpec || HELD_MODELS['wooden-club'];
+    const holderRef = useRef<THREE.Group>(null);
+    const pulseStart = useRef<number>(-1);
+    const lastActionTickRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        if (actionTick == null) return;
+        if (lastActionTickRef.current === actionTick) return;
+        lastActionTickRef.current = actionTick;
+        pulseStart.current = Date.now();
+    }, [actionTick]);
+
+    const { scene } = useGLTF(spec.path);
+    const clone = useMemo(() => {
+        const c = SkeletonUtils.clone(scene);
+        c.scale.set(spec.scale, spec.scale, spec.scale);
+        c.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+                (child as THREE.Mesh).castShadow = true;
+                (child as THREE.Mesh).receiveShadow = true;
+            }
+        });
+        return c;
+    }, [scene, spec.scale]);
+
+    useFrame(() => {
+        if (!holderRef.current) return;
+        const now = Date.now();
+        const idle = Math.sin(now * 0.006) * 0.05;
+        holderRef.current.position.set(spec.position[0], spec.position[1] + idle, spec.position[2]);
+        holderRef.current.rotation.set(spec.rotation[0], spec.rotation[1], spec.rotation[2]);
+
+        const age = pulseStart.current > 0 ? now - pulseStart.current : Infinity;
+        const pulse = Math.max(0, Math.min(1, 1 - age / 500));
+        if (pulse > 0 && (actionType === 'ATTACK' || actionType === 'HARVEST')) {
+            holderRef.current.rotation.z = spec.rotation[2] - Math.sin((1 - pulse) * Math.PI) * 0.75;
+        }
+    });
+
+    if (!knownSpec) return null;
+
+    return (
+        <group ref={holderRef}>
+            <primitive object={clone} />
         </group>
     );
 }

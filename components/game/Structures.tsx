@@ -8,6 +8,7 @@ import { getTerrainHeight } from '../../lib/terrain';
 // Preload
 useGLTF.preload('/assets/models/environment/workbench.glb');
 useGLTF.preload('/assets/models/environment/chest.glb');
+useGLTF.preload('/assets/models/environment/barrel.glb');
 useGLTF.preload('/assets/models/environment/fence.glb');
 
 interface Props {
@@ -44,15 +45,20 @@ function Workbench({ entity }: { entity: EntityState }) {
 }
 
 function LootCrate({ entity }: { entity: EntityState }) {
-    const { scene } = useGLTF('/assets/models/environment/chest.glb');
+    const modelPath = entity.subtype === 'barrel'
+        ? '/assets/models/environment/barrel.glb'
+        : '/assets/models/environment/chest.glb';
+    const { scene } = useGLTF(modelPath);
     const clone = useMemo(() => {
         const c = scene.clone();
-        c.scale.set(0.4, 0.4, 0.4);
+        const scale = entity.subtype === 'barrel' ? 0.35 : 0.4;
+        c.scale.set(scale, scale, scale);
         return c;
-    }, [scene]);
+    }, [scene, entity.subtype]);
 
     const y = getTerrainHeight(entity.position[0], entity.position[1]);
-    return <primitive object={clone} position={[entity.position[0], y, entity.position[1]]} rotation={[0, Math.PI / 4, 0]} />;
+    const spin = ((entity.position[0] * 19 + entity.position[1] * 7) % 360) * (Math.PI / 180);
+    return <primitive object={clone} position={[entity.position[0], y, entity.position[1]]} rotation={[0, spin, 0]} />;
 }
 
 function Barricade({ entity }: { entity: EntityState }) {
