@@ -1,7 +1,9 @@
 """
 Test game: FULL AI — all LLM-powered agents.
 
-Launches 6 Gemini-powered LLM agents and lets them battle it out.
+Launches Gemini-powered LLM agents and lets them battle it out.
+This script now auto-generates bot wallets and funds them so joins use
+real on-chain payments and build a real prize pool.
 This is the ultimate stress test for the validation/adaptation layer,
 since every bot is operating with 2-5s latency.
 
@@ -12,15 +14,18 @@ Watch for:
   - AFK saves (near-wolf-kill prevented by forced displacement)
 
 Prerequisites:
-    1. Start the game server:
+    1. Start the game server (on-chain mode):
            cd server
-           set DEV_SKIP_PAYMENT=true
+        set DEV_SKIP_PAYMENT=false
            node index.js
 
     2. Set your Gemini API key:
            set GOOGLE_AI_API_KEY=your-key-here
 
-    3. Run this script:
+    3. Set source/house wallet key (used to fund generated bot wallets):
+        set HOT_WALLET_PRIVATE_KEY=0x...
+
+    4. Run this script:
            cd sdk
            python -m scripts.test_ai_game
 
@@ -38,6 +43,9 @@ import secrets
 import sys
 import threading
 import time
+import requests
+from web3 import Web3
+from eth_account import Account
 
 from dotenv import load_dotenv
 
@@ -67,16 +75,135 @@ def generate_dummy_key():
     return "0x" + secrets.token_hex(32)
 
 
-def run_bot(index: int, strategy: LLMStrategy):
+def wait_for_server(timeout_seconds: int = 20) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"{SERVER}/api/health", timeout=2)
+            if r.status_code == 200:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def get_game_state():
+    try:
+        r = requests.get(f"{SERVER}/api/health", timeout=2)
+        if r.status_code == 200:
+            return r.json().get("game_state")
+    except Exception:
+        pass
+    return None
+
+
+def wait_for_lobby_open(timeout_seconds: int = 120) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if get_game_state() == "LOBBY_OPEN":
+            return True
+        time.sleep(1)
+    return False
+
+
+def fetch_wallet_info() -> dict:
+    r = requests.get(f"{SERVER}/api/wallet/info", timeout=5)
+    r.raise_for_status()
+    return r.json()
+
+
+def generate_bot_wallets(count: int) -> list[dict]:
+    wallets = []
+    for i in range(count):
+        key = generate_dummy_key()
+        acct = Account.from_key(key)
+        wallets.append({
+            "index": i,
+            "address": acct.address,
+            "private_key": key,
+        })
+    return wallets
+
+
+def fund_wallets_for_demo(wallets: list[dict], wallet_info: dict) -> bool:
+    source_key = os.getenv("HOT_WALLET_PRIVATE_KEY", "").strip()
+    if not source_key:
+        print("  ERROR: HOT_WALLET_PRIVATE_KEY is not set in this shell")
+        return False
+
+    rpc_url = wallet_info.get("rpc_url") or "https://testnet-rpc.monad.xyz/"
+    chain_id = int(wallet_info.get("chain_id") or 10143)
+    entry_fee_wei = int(wallet_info.get("entry_fee_wei") or 0)
+
+    w3 = Web3(Web3.HTTPProvider(rpc_url))
+    source = Account.from_key(source_key)
+
+    # Enough for join fee + gas + a little headroom.
+    min_demo_wei = w3.to_wei(0.03, "ether")
+    per_bot_wei = max(entry_fee_wei * 2, min_demo_wei)
+
+    gas_price = w3.eth.gas_price
+    est_gas_total = 21000 * gas_price * len(wallets)
+    required_total = per_bot_wei * len(wallets) + est_gas_total
+    source_balance = w3.eth.get_balance(source.address)
+
+    print(f"  Source wallet: {source.address}")
+    print(f"  Source balance: {w3.from_wei(source_balance, 'ether')} MON")
+    print(f"  Funding per bot: {w3.from_wei(per_bot_wei, 'ether')} MON")
+
+    if source_balance < required_total:
+        print("  ERROR: insufficient source balance for funding")
+        return False
+
+    nonce = w3.eth.get_transaction_count(source.address, "pending")
+    print("\n  Funding generated AI bot wallets...")
+    for wallet in wallets:
+        tx = {
+            "to": Web3.to_checksum_address(wallet["address"]),
+            "value": per_bot_wei,
+            "chainId": chain_id,
+            "gas": 21000,
+            "gasPrice": w3.eth.gas_price,
+            "nonce": nonce,
+        }
+        signed = source.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        if receipt.get("status") != 1:
+            print(f"  ERROR: funding tx failed for AI-{wallet['index']}")
+            return False
+        print(f"    [AI-{wallet['index']}] tx={tx_hash.hex()[:14]}...")
+        nonce += 1
+
+    print("  Funding complete.\n")
+    return True
+
+
+def run_bot(index: int, strategy: LLMStrategy, private_key: str):
     """Run a single LLM bot in its own thread."""
-    key = generate_dummy_key()
     label = f"AI-{index}"
     try:
-        agent = SurvivalAgent(SERVER, key)
-        agent.join(spawn_preference=[
-            random.randint(5, 45),
-            random.randint(5, 45),
-        ])
+        agent = SurvivalAgent(SERVER, private_key)
+
+        join_deadline = time.time() + 120
+        joined = False
+        while time.time() < join_deadline and not joined:
+            try:
+                agent.join(spawn_preference=[
+                    random.randint(5, 45),
+                    random.randint(5, 45),
+                ])
+                joined = True
+            except Exception as e:
+                if "GAME_NOT_IN_LOBBY" in str(e):
+                    time.sleep(1)
+                    continue
+                raise
+
+        if not joined:
+            raise RuntimeError("Timed out waiting for lobby to open")
+
         logger.info(f"Bot {index} ({label}) joined as '{agent.display_name}'")
         agent.run(strategy)
         logger.info(f"Bot {index} ({label}) finished.")
@@ -150,6 +277,29 @@ def main():
     print("═" * 50)
     print()
 
+    if not wait_for_server():
+        print(f"  ERROR: server is not reachable at {SERVER}")
+        return
+
+    try:
+        wallet_info = fetch_wallet_info()
+    except Exception as e:
+        print(f"  ERROR: failed to fetch /api/wallet/info: {e}")
+        return
+
+    if wallet_info.get("dev_skip_payment"):
+        print("  ERROR: server is running with DEV_SKIP_PAYMENT=true")
+        print("  Set DEV_SKIP_PAYMENT=false and restart the server.")
+        return
+
+    wallets = generate_bot_wallets(BOT_COUNT)
+    if not fund_wallets_for_demo(wallets, wallet_info):
+        return
+
+    if not wait_for_lobby_open():
+        print("  ERROR: server did not enter LOBBY_OPEN in time")
+        return
+
     backend = create_gemini_backend(model=LLM_MODEL)
 
     threads = []
@@ -158,9 +308,10 @@ def main():
         strategy = LLMStrategy(backend=backend)
         label = f"AI-{i}"
         all_strategies.append((label, strategy))
+        private_key = wallets[i]["private_key"]
 
         t = threading.Thread(
-            target=run_bot, args=(i, strategy), daemon=True
+            target=run_bot, args=(i, strategy, private_key), daemon=True
         )
         threads.append(t)
         print(f"  Launching bot {i}: [{label}]")
