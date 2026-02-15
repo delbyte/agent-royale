@@ -58,6 +58,26 @@ logging.basicConfig(
 logger = logging.getLogger("test_preset")
 
 
+def request_json_with_retry(url: str, timeout: int = 5, attempts: int = 4):
+    """GET JSON with retry on transient network errors and 5xx/429."""
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            r = requests.get(url, timeout=timeout)
+            if r.status_code == 429 or 500 <= r.status_code < 600:
+                if attempt < attempts - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_error = e
+            if attempt < attempts - 1:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise RuntimeError(last_error) from last_error
+
+
 def read_env_value_from_file(env_path: Path, key: str) -> str:
     """Read a single KEY=value from a dotenv-style file."""
     if not env_path.exists():
@@ -106,9 +126,7 @@ def generate_dummy_key():
 
 def fetch_wallet_info() -> dict:
     """Fetch server wallet/payment config."""
-    r = requests.get(f"{SERVER}/api/wallet/info", timeout=5)
-    r.raise_for_status()
-    return r.json()
+    return request_json_with_retry(f"{SERVER}/api/wallet/info", timeout=5, attempts=4)
 
 
 def generate_bot_wallets(count: int) -> list[dict]:

@@ -64,6 +64,39 @@ class SurvivalAgent:
         # State cache — raw dict from last get_state() call
         self._last_state: Optional[dict] = None
 
+        # HTTP retry tuning (for transient network/server issues)
+        self.http_max_retries = 4
+        self.http_backoff_seconds = 0.5
+
+    def _request_with_retry(self, method: str, path: str, **kwargs) -> requests.Response:
+        """HTTP request with retry on transient errors and 5xx/429 responses."""
+        url = f"{self.server}{path}"
+        timeout = kwargs.pop("timeout", 10)
+
+        last_exc: Optional[Exception] = None
+        last_resp: Optional[requests.Response] = None
+
+        for attempt in range(self.http_max_retries):
+            try:
+                resp = requests.request(method, url, timeout=timeout, **kwargs)
+                last_resp = resp
+
+                # Retry only on transient server pressure/errors.
+                if resp.status_code == 429 or 500 <= resp.status_code < 600:
+                    if attempt < self.http_max_retries - 1:
+                        time.sleep(self.http_backoff_seconds * (attempt + 1))
+                        continue
+                return resp
+            except requests.exceptions.RequestException as exc:
+                last_exc = exc
+                if attempt < self.http_max_retries - 1:
+                    time.sleep(self.http_backoff_seconds * (attempt + 1))
+                    continue
+
+        if last_resp is not None:
+            return last_resp
+        raise RuntimeError(f"HTTP request failed after retries: {method} {url} — {last_exc}")
+
     @property
     def is_joined(self) -> bool:
         """Whether the agent has successfully joined a game."""
@@ -96,8 +129,9 @@ class SurvivalAgent:
         logger.info(f"Joining as {self.address[:10]}...")
 
         # Step 1: Initial request
-        resp = requests.post(
-            f"{self.server}/api/join",
+        resp = self._request_with_retry(
+            "POST",
+            "/api/join",
             json={
                 "wallet_address": self.address,
                 "spawn_preference": spawn_preference,
@@ -126,8 +160,9 @@ class SurvivalAgent:
         logger.info(f"Payment sent: {tx_hash}")
 
         # Step 3: Confirm with server
-        resp = requests.post(
-            f"{self.server}/api/join",
+        resp = self._request_with_retry(
+            "POST",
+            "/api/join",
             json={
                 "wallet_address": self.address,
                 "tx_hash": tx_hash,
@@ -196,8 +231,9 @@ class SurvivalAgent:
             dict matching the GET /api/world/state response schema
         """
         self._require_joined()
-        resp = requests.get(
-            f"{self.server}/api/world/state",
+        resp = self._request_with_retry(
+            "GET",
+            "/api/world/state",
             headers=self._auth_headers(),
         )
         if resp.status_code != 200:
@@ -220,8 +256,9 @@ class SurvivalAgent:
         """
         self._require_joined()
         payload = {"action": action, **kwargs}
-        resp = requests.post(
-            f"{self.server}/api/action",
+        resp = self._request_with_retry(
+            "POST",
+            "/api/action",
             json=payload,
             headers=self._auth_headers(),
         )
