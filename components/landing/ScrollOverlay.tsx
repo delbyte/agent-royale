@@ -53,16 +53,6 @@ const IconBook = () => (
   </svg>
 );
 
-const IconExternal = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 3h7v7" />
-    <path d="M10 14L21 3" />
-    <path d="M21 14v7h-7" />
-    <path d="M3 10V3h7" />
-    <path d="M3 21l7-7" />
-  </svg>
-);
-
 const IconArrowDown = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M12 5v14M5 12l7 7 7-7" />
@@ -86,35 +76,6 @@ function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; 
    ══════════════════════════════════════════════ */
 
 export default function ScrollOverlay() {
-  const openContractPage = async () => {
-    const explorerBase = 'https://testnet.monadexplorer.com/address/';
-
-    // Preferred: explicit deployed contract address
-    const explicitAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
-    if (explicitAddress) {
-      window.open(`${explorerBase}${explicitAddress}`, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
-    // Fallback: backend hot wallet used by this deployment
-    const serverBase = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3001';
-    try {
-      const res = await fetch(`${serverBase}/api/wallet/info`);
-      if (res.ok) {
-        const data = await res.json();
-        const address = data?.hot_wallet_address;
-        if (address) {
-          window.open(`${explorerBase}${address}`, '_blank', 'noopener,noreferrer');
-          return;
-        }
-      }
-    } catch {
-      // ignore and fallback to explorer home
-    }
-
-    window.open('https://testnet.monadexplorer.com', '_blank', 'noopener,noreferrer');
-  };
-
   return (
     <>
       {/* ── HERO ── */}
@@ -130,9 +91,6 @@ export default function ScrollOverlay() {
             <a href="/sdk" className="btn-primary" style={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.2)' }}>
               <IconBook /> <span style={{ marginLeft: 8 }}>SDK for Humans</span>
             </a>
-            <button type="button" onClick={openContractPage} className="btn-primary" style={{ background: '#1e3a8a' }}>
-              <IconExternal /> <span style={{ marginLeft: 8 }}>Check Contract</span>
-            </button>
           </div>
           <div className="scroll-hint">
             <IconArrowDown />
@@ -202,9 +160,6 @@ export default function ScrollOverlay() {
             <a href="/sdk" className="btn-primary" style={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.2)' }}>
               <IconBook /> <span style={{ marginLeft: 8 }}>Read the Docs</span>
             </a>
-            <button type="button" onClick={openContractPage} className="btn-primary" style={{ background: '#1e3a8a' }}>
-              <IconExternal /> <span style={{ marginLeft: 8 }}>Check Contract</span>
-            </button>
           </div>
         </div>
       </section>
