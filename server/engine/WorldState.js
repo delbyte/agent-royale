@@ -14,25 +14,28 @@ class WorldState {
      */
     generate(seed, counts) {
         const rng = this.seededRandom(seed);
+        const treeVariants = ['tree', 'tree-pine', 'tree-autumn', 'tree-tall'];
+        const rockVariants = ['rock-a', 'rock-b', 'rock-c'];
 
-        // Place trees
-        for (let i = 0; i < counts.trees; i++) {
-            const pos = this.randomEmptyTile(rng);
-            if (!pos) continue;
-            const id = `tree_${i}`;
-            // Alternate between tree variants for visual variety
-            const subtype = rng() > 0.5 ? 'tree' : 'tree-pine';
-            this.addEntity(id, { type: 'RESOURCE', subtype, position: pos, hp: config.TREE_HP });
-        }
+        // Place trees in clustered groves (feels less sparse than pure uniform scatter)
+        this.placeClusteredEntities(rng, counts.trees, {
+            idPrefix: 'tree',
+            subtypeChoices: treeVariants,
+            baseEntity: { type: 'RESOURCE', hp: config.TREE_HP },
+            clusterRadius: 4,
+            clusterSizeMin: 3,
+            clusterSizeMax: 8,
+        });
 
-        // Place rocks
-        for (let i = 0; i < counts.rocks; i++) {
-            const pos = this.randomEmptyTile(rng);
-            if (!pos) continue;
-            const id = `rock_${i}`;
-            const subtype = rng() > 0.5 ? 'rock-a' : 'rock-b';
-            this.addEntity(id, { type: 'RESOURCE', subtype, position: pos, hp: config.ROCK_HP });
-        }
+        // Place rocks in smaller clusters
+        this.placeClusteredEntities(rng, counts.rocks, {
+            idPrefix: 'rock',
+            subtypeChoices: rockVariants,
+            baseEntity: { type: 'RESOURCE', hp: config.ROCK_HP },
+            clusterRadius: 3,
+            clusterSizeMin: 2,
+            clusterSizeMax: 5,
+        });
 
         // Place loot crates (1-hit open, drops weapon/potion)
         for (let i = 0; i < counts.crates; i++) {
@@ -224,6 +227,51 @@ class WorldState {
         for (let attempts = 0; attempts < 100; attempts++) {
             const x = Math.floor(rng() * this.size);
             const y = Math.floor(rng() * this.size);
+            if (!this.grid[y][x]) return [x, y];
+        }
+        return null;
+    }
+
+    placeClusteredEntities(rng, totalCount, options) {
+        const {
+            idPrefix,
+            subtypeChoices,
+            baseEntity,
+            clusterRadius = 3,
+            clusterSizeMin = 2,
+            clusterSizeMax = 6,
+        } = options;
+
+        let created = 0;
+        while (created < totalCount) {
+            const center = this.randomEmptyTile(rng);
+            if (!center) break;
+
+            const desiredInCluster = Math.min(
+                totalCount - created,
+                clusterSizeMin + Math.floor(rng() * (clusterSizeMax - clusterSizeMin + 1))
+            );
+
+            for (let c = 0; c < desiredInCluster && created < totalCount; c++) {
+                const pos = this.randomEmptyNear(rng, center, clusterRadius) || this.randomEmptyTile(rng);
+                if (!pos) continue;
+
+                const id = `${idPrefix}_${created}`;
+                const subtype = subtypeChoices[Math.floor(rng() * subtypeChoices.length)];
+                this.addEntity(id, { ...baseEntity, subtype, position: pos });
+                created++;
+            }
+        }
+    }
+
+    randomEmptyNear(rng, center, radius) {
+        const [cx, cy] = center;
+        for (let attempts = 0; attempts < 25; attempts++) {
+            const ox = Math.floor((rng() * 2 - 1) * radius);
+            const oy = Math.floor((rng() * 2 - 1) * radius);
+            const x = cx + ox;
+            const y = cy + oy;
+            if (x < 0 || x >= this.size || y < 0 || y >= this.size) continue;
             if (!this.grid[y][x]) return [x, y];
         }
         return null;

@@ -304,6 +304,10 @@ class GameEngine {
         // Reserve the spawn tile on the grid so other players don't get the same spot
         this.world.placePlayer(agentId, position);
 
+        // Broadcast updated lobby snapshot immediately so spectators can see
+        // live join count (e.g., 0/10 -> 1/10 -> ...), even before GAME_ACTIVE.
+        this.io.of('/game').emit('sync', this.getFullState());
+
         logger.info('Engine', `${displayName} (${agentId}) joined at [${position}]`);
 
         // Auto-start immediately when lobby is full.
@@ -506,7 +510,10 @@ class GameEngine {
             // Progressive harvest (trees & rocks)
             let harvestDamage = 10; // base
             const heldTool = this.getHeldWeapon(player);
-            if (heldTool && config.HARVEST_BONUS[heldTool] === entity.subtype) {
+            const bonusTarget = heldTool ? config.HARVEST_BONUS[heldTool] : null;
+            const matchesTree = bonusTarget === 'tree' && entity.subtype?.startsWith('tree');
+            const matchesRock = bonusTarget === 'rock' && entity.subtype?.startsWith('rock');
+            if (matchesTree || matchesRock) {
                 harvestDamage = 20; // 2× bonus for matching tool
             }
 

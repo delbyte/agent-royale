@@ -23,6 +23,7 @@ import secrets
 import threading
 import time
 import sys
+import requests
 
 from survival_sdk import SurvivalAgent
 from survival_sdk.strategies.aggressive import aggressive_strategy
@@ -52,15 +53,66 @@ def generate_dummy_key():
     return "0x" + secrets.token_hex(32)
 
 
+def wait_for_server(timeout_seconds: int = 20) -> bool:
+    """Wait until /api/health is reachable."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            r = requests.get(f"{SERVER}/api/health", timeout=2)
+            if r.status_code == 200:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def get_game_state():
+    try:
+        r = requests.get(f"{SERVER}/api/health", timeout=2)
+        if r.status_code == 200:
+            return r.json().get("game_state")
+    except Exception:
+        pass
+    return None
+
+
+def wait_for_lobby_open(timeout_seconds: int = 120) -> bool:
+    """Wait until server reports LOBBY_OPEN so bots can join."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        state = get_game_state()
+        if state == "LOBBY_OPEN":
+            return True
+        time.sleep(1)
+    return False
+
+
 def run_bot(index: int, strategy_name: str, strategy_fn):
     """Run a single bot in its own thread."""
     key = generate_dummy_key()
     try:
         agent = SurvivalAgent(SERVER, key)
-        agent.join(spawn_preference=[
-            random.randint(5, 45),
-            random.randint(5, 45),
-        ])
+
+        # If server is mid-game, wait and retry join for a bit.
+        join_deadline = time.time() + 120
+        joined = False
+        while time.time() < join_deadline and not joined:
+            try:
+                agent.join(spawn_preference=[
+                    random.randint(5, 45),
+                    random.randint(5, 45),
+                ])
+                joined = True
+            except Exception as e:
+                if "GAME_NOT_IN_LOBBY" in str(e):
+                    time.sleep(1)
+                    continue
+                raise
+
+        if not joined:
+            raise RuntimeError("Timed out waiting for lobby to open")
+
         logger.info(
             f"Bot {index} ({strategy_name}) joined as '{agent.display_name}'"
         )
@@ -79,6 +131,19 @@ def main():
     print("  AI: None (all rule-based)")
     print("═" * 50)
     print()
+
+    if not wait_for_server():
+        print(f"  ERROR: server is not reachable at {SERVER}")
+        print("  Start server first (server terminal):")
+        print("    cd server")
+        print("    set DEV_SKIP_PAYMENT=true")
+        print("    node index.js")
+        return
+
+    if not wait_for_lobby_open():
+        print("  ERROR: server did not enter LOBBY_OPEN in time")
+        print("  Wait for current match to end (or restart server), then re-run test.")
+        return
 
     threads = []
     for i in range(NUM_BOTS):

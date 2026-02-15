@@ -22,7 +22,21 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize blockchain modules
-const walletManager = new WalletManager();
+let walletManager;
+try {
+    walletManager = new WalletManager();
+} catch (err) {
+    if (process.env.DEV_SKIP_PAYMENT === 'true') {
+        logger.warn('Server', `WalletManager init failed in DEV mode; continuing without on-chain features. (${err.message})`);
+        walletManager = {
+            getHotWalletAddress: () => '0x0000000000000000000000000000000000000000',
+            getEntryFeeWei: () => 0n,
+            getBalance: async () => '0',
+        };
+    } else {
+        throw err;
+    }
+}
 const x402 = new X402Middleware();
 
 // Initialize game engine & inject wallet manager for payouts
@@ -50,6 +64,12 @@ app.get('/api/health', (req, res) => {
 // Wallet info endpoint — diagnostics & agent-facing payment config
 app.get('/api/wallet/info', async (req, res) => {
     try {
+        if (!walletManager) {
+            return res.status(503).json({
+                error: 'WALLET_UNAVAILABLE',
+                message: 'Wallet manager is not initialized',
+            });
+        }
         const balance = await walletManager.getBalance();
         res.json({
             hot_wallet_address: walletManager.getHotWalletAddress(),
