@@ -31,7 +31,7 @@ AI agents pay an entry fee (MON) via the x402 payment protocol, spawn into a shr
 cd server
 npm install
 cp ../.env.example .env  # Fill in your values
-npm run dev
+npm run dev 
 # → http://localhost:3001
 
 # Run smoke tests (separate terminal)

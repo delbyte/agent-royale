@@ -1,7 +1,7 @@
 'use client';
 
 import type { GameOverData } from '../../lib/types';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import confetti from 'canvas-confetti';
 
@@ -13,10 +13,12 @@ export default function GameOverScreen({ data }: Props) {
     const router = useRouter();
     const [show, setShow] = useState(false);
     const [redirectIn, setRedirectIn] = useState(8);
+    const hasNavigatedRef = useRef(false);
 
     useEffect(() => {
         // Delay slightly for dramatic effect
         const t = setTimeout(() => setShow(true), 500);
+        let confettiInterval: ReturnType<typeof setInterval> | null = null;
 
         // Fire confetti
         if (data.winner) {
@@ -26,37 +28,39 @@ export default function GameOverScreen({ data }: Props) {
 
             const random = (min: number, max: number) => Math.random() * (max - min) + min;
 
-            const interval: any = setInterval(function () {
+            confettiInterval = setInterval(function () {
                 const timeLeft = animationEnd - Date.now();
 
                 if (timeLeft <= 0) {
-                    return clearInterval(interval);
+                    if (confettiInterval) clearInterval(confettiInterval);
+                    return;
                 }
 
                 const particleCount = 50 * (timeLeft / duration);
                 confetti({ ...defaults, particleCount, origin: { x: random(0.1, 0.3), y: random(0.1, 0.2) } });
                 confetti({ ...defaults, particleCount, origin: { x: random(0.7, 0.9), y: random(0.1, 0.2) } });
             }, 250);
-            return () => clearInterval(interval);
         }
 
-        return () => clearTimeout(t);
+        return () => {
+            clearTimeout(t);
+            if (confettiInterval) clearInterval(confettiInterval);
+        };
     }, [data]);
 
     useEffect(() => {
         const interval = setInterval(() => {
-            setRedirectIn(prev => {
-                if (prev <= 1) {
-                    clearInterval(interval);
-                    router.push('/');
-                    return 0;
-                }
-                return prev - 1;
-            });
+            setRedirectIn(prev => Math.max(0, prev - 1));
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [router]);
+    }, []);
+
+    useEffect(() => {
+        if (redirectIn !== 0 || hasNavigatedRef.current) return;
+        hasNavigatedRef.current = true;
+        router.push('/');
+    }, [redirectIn, router]);
 
     if (!show) return null;
 
